@@ -28,12 +28,15 @@ from typing import List, Dict, Tuple, Optional, Set
 
 # ---------- Utilities ----------
 
+
 def run_cmd(cmd: List[str]) -> str:
     """Run command and return stdout (text). Raises subprocess.CalledProcessError on error."""
     return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
 
+
 def safe_split_lines(s: str) -> List[str]:
     return s.splitlines()
+
 
 def parse_rcs_date(s: str) -> int:
     """
@@ -41,7 +44,7 @@ def parse_rcs_date(s: str) -> int:
     Some old files might have 2-digit year - treat < 3 digits as 19xx.
     Returns unix timestamp (int).
     """
-    parts = s.strip().split('.')
+    parts = s.strip().split(".")
     if len(parts) < 6:
         # fallback: try to parse common RFC-ish date fragments
         try:
@@ -51,35 +54,47 @@ def parse_rcs_date(s: str) -> int:
             return int(time.time())
     y = parts[0]
     if len(y) < 3:
-        y = '19' + y  # follow Ruby script behavior
+        y = "19" + y  # follow Ruby script behavior
     try:
         parts_i = list(map(int, [y] + parts[1:6]))
-        dt = datetime.datetime(parts_i[0], parts_i[1], parts_i[2],
-                               parts_i[3], parts_i[4], parts_i[5], tzinfo=datetime.timezone.utc)
+        dt = datetime.datetime(
+            parts_i[0],
+            parts_i[1],
+            parts_i[2],
+            parts_i[3],
+            parts_i[4],
+            parts_i[5],
+            tzinfo=datetime.timezone.utc,
+        )
         return int(dt.timestamp())
     except Exception:
         return int(time.time())
 
+
 def load_authors_file(fn: str, warn_missing: bool) -> Dict[str, str]:
     mapping: Dict[str, str] = {}
     try:
-        with open(os.path.expanduser(fn), 'r', encoding='utf-8') as f:
+        with open(os.path.expanduser(fn), "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if not line or line.startswith('#'):
+                if not line or line.startswith("#"):
                     continue
-                if '=' in line:
-                    uname, author = line.split('=', 1)
+                if "=" in line:
+                    uname, author = line.split("=", 1)
                     uname = uname.strip()
                     author = author.strip()
                     if uname in mapping:
-                        sys.stderr.write(f"Warning: username {uname} redefined to {author}\n")
+                        sys.stderr.write(
+                            f"Warning: username {uname} redefined to {author}\n"
+                        )
                     mapping[uname] = author
     except FileNotFoundError:
         sys.stderr.write(f"Warning: authors file {fn} not found\n")
     return mapping
 
+
 # ---------- RCS parsing using rlog/co ----------
+
 
 class Revision:
     def __init__(self, rev: str):
@@ -90,23 +105,27 @@ class Revision:
         self.state: Optional[str] = None
         self.branches: List[str] = []
         self.symbols: Set[str] = set()
-        self.log: str = ''
+        self.log: str = ""
         self.has_log_started: bool = False
 
     def __repr__(self):
         return f"<Revision {self.rev} author={self.author} date={self.date_iso} symbols={sorted(self.symbols)}>"
 
+
 class FileHistory:
     def __init__(self, rcs_path: str, filename: str):
-        self.rcs_path = rcs_path   # path to the ,v file
-        self.filename = filename   # logical filename used in git (path minus ,v)
+        self.rcs_path = rcs_path  # path to the ,v file
+        self.filename = filename  # logical filename used in git (path minus ,v)
         self.symbols: Dict[str, str] = {}  # symbol -> revision (from header)
-        self.revisions: List[Revision] = []  # sorted newest->oldest as returned by rlog; we'll reverse later
+        self.revisions: List[Revision] = (
+            []
+        )  # sorted newest->oldest as returned by rlog; we'll reverse later
 
     def __repr__(self):
         return f"<FileHistory {self.filename} revs={len(self.revisions)} symbols={list(self.symbols.keys())}>"
 
-def parse_rlog(rcs_path: str, log_encoding: Optional[str]=None) -> FileHistory:
+
+def parse_rlog(rcs_path: str, log_encoding: Optional[str] = None) -> FileHistory:
     """
     Uses `rlog -z` to obtain revision list, symbol table and logs.
     Returns a FileHistory object.
@@ -122,13 +141,13 @@ def parse_rlog(rcs_path: str, log_encoding: Optional[str]=None) -> FileHistory:
 
     if log_encoding:
         try:
-            out = out.encode('latin1').decode(log_encoding)
+            out = out.encode("latin1").decode(log_encoding)
         except Exception:
             # best-effort: leave as-is
             pass
 
     lines = out.splitlines()
-    fh = FileHistory(rcs_path, os.path.basename(rcs_path).replace(',v', ''))
+    fh = FileHistory(rcs_path, os.path.basename(rcs_path).replace(",v", ""))
     cur_rev: Optional[Revision] = None
     in_header_section = True
     # rlog top-level may include "symbols:" or "symbol:" lines prior to revisions;
@@ -140,26 +159,35 @@ def parse_rlog(rcs_path: str, log_encoding: Optional[str]=None) -> FileHistory:
         # header/symbols (occur before revisions)
         if in_header_section:
             stripped = line.strip()
-            if stripped.startswith("symbols:") or stripped.startswith("symbol:") or stripped.startswith("symbol"):
+            if (
+                stripped.startswith("symbols:")
+                or stripped.startswith("symbol:")
+                or stripped.startswith("symbol")
+            ):
                 # collect the rest until a blank or "revision"
                 # example: "symbol: RELEASE_1_0:1.2; RELENG:1.1;"
-                parts = stripped.split(':', 1)
+                parts = stripped.split(":", 1)
                 if len(parts) > 1:
                     rest = parts[1]
                 else:
-                    rest = ''
+                    rest = ""
                 # Sometimes symbols are split across multiple lines; accumulate until a line with 'revision' occurs
                 j = i + 1
-                while ';' in rest and not rest.strip().endswith(';') and j < len(lines) and not lines[j].strip().startswith("revision"):
-                    rest += ' ' + lines[j].strip()
+                while (
+                    ";" in rest
+                    and not rest.strip().endswith(";")
+                    and j < len(lines)
+                    and not lines[j].strip().startswith("revision")
+                ):
+                    rest += " " + lines[j].strip()
                     j += 1
                 # parse name:rev; pairs
-                for pair in rest.strip().split(';'):
+                for pair in rest.strip().split(";"):
                     pair = pair.strip()
                     if not pair:
                         continue
-                    if ':' in pair:
-                        name, rev = pair.split(':', 1)
+                    if ":" in pair:
+                        name, rev = pair.split(":", 1)
                         fh.symbols[name.strip()] = rev.strip()
                 # fallthrough; continue parse
             if line.strip().startswith("revision "):
@@ -183,44 +211,49 @@ def parse_rlog(rcs_path: str, log_encoding: Optional[str]=None) -> FileHistory:
                 if ls.startswith("date:"):
                     # expected "date: 1999.01.01.12.00.00;  author: joe;  state: Exp;"
                     # parts separated by ';'
-                    parts = ls.split(';')
+                    parts = ls.split(";")
                     for p in parts:
                         p = p.strip()
                         if p.startswith("date:"):
-                            val = p.split("date:",1)[1].strip()
+                            val = p.split("date:", 1)[1].strip()
                             cur_rev.date_iso = val
                             cur_rev.date_ts = parse_rcs_date(val)
                         elif p.startswith("author:"):
-                            cur_rev.author = p.split("author:",1)[1].strip()
+                            cur_rev.author = p.split("author:", 1)[1].strip()
                         elif p.startswith("state:"):
-                            cur_rev.state = p.split("state:",1)[1].strip()
+                            cur_rev.state = p.split("state:", 1)[1].strip()
                         elif p.startswith("branches:"):
                             # branches may be blank or have values
-                            bval = p.split("branches:",1)[1].strip()
+                            bval = p.split("branches:", 1)[1].strip()
                             if bval:
                                 cur_rev.branches = [x for x in bval.split() if x]
                     i += 1
                     continue
                 if ls.startswith("branches:"):
                     # alternative branches line
-                    b = ls.split("branches:",1)[1].strip()
+                    b = ls.split("branches:", 1)[1].strip()
                     if b:
                         cur_rev.branches = [x for x in b.split() if x]
                     i += 1
                     continue
                 if ls.startswith("symbols:") or ls.startswith("symbol:"):
                     # sometimes per-revision symbols; treat them as symbols for that revision
-                    rest = ls.split(':',1)[1] if ':' in ls else ''
+                    rest = ls.split(":", 1)[1] if ":" in ls else ""
                     j = i + 1
-                    while ';' in rest and not rest.strip().endswith(';') and j < len(lines) and not lines[j].strip().startswith("log"):
-                        rest += ' ' + lines[j].strip()
+                    while (
+                        ";" in rest
+                        and not rest.strip().endswith(";")
+                        and j < len(lines)
+                        and not lines[j].strip().startswith("log")
+                    ):
+                        rest += " " + lines[j].strip()
                         j += 1
-                    for pair in rest.split(';'):
+                    for pair in rest.split(";"):
                         pair = pair.strip()
                         if not pair:
                             continue
-                        if ':' in pair:
-                            name, rev2 = pair.split(':', 1)
+                        if ":" in pair:
+                            name, rev2 = pair.split(":", 1)
                             cur_rev.symbols.add(name.strip())
                     i += 1
                     continue
@@ -231,13 +264,22 @@ def parse_rlog(rcs_path: str, log_encoding: Optional[str]=None) -> FileHistory:
                     # Simple approach: collect until a line "---" or until we see 'next' or 'text' or 'revision'
                     i += 1
                     log_lines = []
-                    while i < len(lines) and not lines[i].strip().startswith("text") and not lines[i].strip().startswith("revision"):
+                    while (
+                        i < len(lines)
+                        and not lines[i].strip().startswith("text")
+                        and not lines[i].strip().startswith("revision")
+                    ):
                         log_lines.append(lines[i])
                         i += 1
                     cur_rev.log = "\n".join(log_lines).rstrip()
                     continue
                 # termination of revision header: rlog often inserts a line of dashes or blank line before next revision or text
-                if ls == "" or ls.startswith("-----") or ls.startswith("=====") or ls.startswith("text"):
+                if (
+                    ls == ""
+                    or ls.startswith("-----")
+                    or ls.startswith("=====")
+                    or ls.startswith("text")
+                ):
                     i += 1
                     break
                 i += 1
@@ -258,7 +300,8 @@ def parse_rlog(rcs_path: str, log_encoding: Optional[str]=None) -> FileHistory:
                 break
     return fh
 
-def get_revision_content(rcs_path: str, rev: str, expand_keywords: bool=False) -> str:
+
+def get_revision_content(rcs_path: str, rev: str, expand_keywords: bool = False) -> str:
     """
     Use `co -q -pREV` to print the full text of a revision.
     expand_keywords currently ignored (co will expand by default if keywords are present).
@@ -266,33 +309,46 @@ def get_revision_content(rcs_path: str, rev: str, expand_keywords: bool=False) -
     cmd = ["co", "-q", f"-p{rev}", rcs_path]
     return run_cmd(cmd)
 
+
 # ---------- Build commit objects ----------
+
 
 class SingleFileCommit:
     def __init__(self, filename: str, rcs_path: str, rev: Revision, content: str):
-        self.filename = filename          # path in repo
-        self.rcs_path = rcs_path          # path to the ,v file
+        self.filename = filename  # path in repo
+        self.rcs_path = rcs_path  # path to the ,v file
         self.rev_id = rev.rev
-        self.author = rev.author or 'unknown'
+        self.author = rev.author or "unknown"
         self.date_ts = rev.date_ts or int(time.time())
-        self.log = rev.log or ''
+        self.log = rev.log or ""
         self.symbols = set(rev.symbols)
         self.branches = list(rev.branches)
         self.content = content
+
     def __repr__(self):
         return f"<SFC {self.filename}@{self.rev_id} author={self.author} date={self.date_ts}>"
 
+
 # ---------- Fast-import emission ----------
 
+
 class FastImportEmitter:
-    def __init__(self, author_map: Dict[str,str], author_is_committer: bool, tag_each_rev: bool, log_filename: bool):
+    def __init__(
+        self,
+        author_map: Dict[str, str],
+        author_is_committer: bool,
+        tag_each_rev: bool,
+        log_filename: bool,
+    ):
         self.author_map = author_map
         self.author_is_committer = author_is_committer
         self.tag_each_rev = tag_each_rev
         self.log_filename = log_filename
         self._next_mark = 1
-        self._blob_marks: Dict[Tuple[str,str], int] = {}  # (filename,rev) -> mark
-        self._commit_marks: Dict[int, int] = {}          # sequential index -> mark (we'll use list-index)
+        self._blob_marks: Dict[Tuple[str, str], int] = {}  # (filename,rev) -> mark
+        self._commit_marks: Dict[int, int] = (
+            {}
+        )  # sequential index -> mark (we'll use list-index)
         self._last_commit_mark_for_file: Dict[str, int] = {}
         self._printed_blobs: Set[int] = set()
 
@@ -308,7 +364,7 @@ class FastImportEmitter:
         self.author_map[username] = f"{username} <{username}@example.com>"
         return self.author_map[username]
 
-    def emit_blob(self, filename: str, rev_id: str, content: str, mode: str='644'):
+    def emit_blob(self, filename: str, rev_id: str, content: str, mode: str = "644"):
         key = (filename, rev_id)
         if key in self._blob_marks:
             return self._blob_marks[key]
@@ -318,7 +374,7 @@ class FastImportEmitter:
         # fast-import expects: blob\nmark :N\ndata <len>\n<content>
         # We will print as raw; ensure content length counts bytes (encode utf-8)
         if isinstance(content, str):
-            content_bytes = content.encode('utf-8')
+            content_bytes = content.encode("utf-8")
         else:
             content_bytes = content
         sys.stdout.write(f"blob\nmark :{bmark}\ndata {len(content_bytes)}\n")
@@ -331,7 +387,16 @@ class FastImportEmitter:
             sys.stdout.write(content + "\n")
         return bmark
 
-    def emit_commit(self, tree_entries: List[Tuple[str,int,str]], author_name: str, date_ts: int, logmsg: str, parent_mark: Optional[int], commit_tag_symbols: List[str]=[], commit_index: Optional[int]=None):
+    def emit_commit(
+        self,
+        tree_entries: List[Tuple[str, int, str]],
+        author_name: str,
+        date_ts: int,
+        logmsg: str,
+        parent_mark: Optional[int],
+        commit_tag_symbols: List[str] = [],
+        commit_index: Optional[int] = None,
+    ):
         """
         tree_entries: list of tuples (path, blob_mark, mode) where mode like '644' or '755' or 'D' for delete
         parent_mark: optional parent commit mark to set "from :N"
@@ -350,12 +415,14 @@ class FastImportEmitter:
         else:
             # use current environment committer identity
             try:
-                committer = subprocess.check_output(["git", "var", "GIT_COMMITTER_IDENT"], text=True).strip()
+                committer = subprocess.check_output(
+                    ["git", "var", "GIT_COMMITTER_IDENT"], text=True
+                ).strip()
             except Exception:
                 committer = au + " " + date_str
             sys.stdout.write(f"committer {committer}\n")
         if logmsg is None:
-            logmsg = ''
+            logmsg = ""
         sys.stdout.write(f"data {len(logmsg.encode('utf-8'))}\n")
         if logmsg:
             sys.stdout.write(logmsg + "\n")
@@ -380,16 +447,24 @@ class FastImportEmitter:
                 self._last_commit_mark_for_file[path] = commit_mark
         return commit_mark
 
+
 # ---------- High-level flow ----------
 
-def collect_histories(paths: List[str], ignore_patterns: List[str], log_encoding: Optional[str], expand_keywords: bool, skip_branches: bool) -> List[FileHistory]:
+
+def collect_histories(
+    paths: List[str],
+    ignore_patterns: List[str],
+    log_encoding: Optional[str],
+    expand_keywords: bool,
+    skip_branches: bool,
+) -> List[FileHistory]:
     histories: List[FileHistory] = []
     for path in paths:
         if os.path.isdir(path):
             # walk and find files ending with ,v
             for root, _, files in os.walk(path):
                 for f in files:
-                    if not f.endswith(',v'):
+                    if not f.endswith(",v"):
                         continue
                     relpath = os.path.join(root, f)
                     # compute logical filename relative to passed path (strip leading path portion)
@@ -400,7 +475,9 @@ def collect_histories(paths: List[str], ignore_patterns: List[str], log_encoding
                     # We'll just use path relative to the passed directory argument
                     should_ignore = False
                     for pat in ignore_patterns:
-                        if fnmatch.fnmatch(relpath, pat) or fnmatch.fnmatch(os.path.basename(relpath), pat):
+                        if fnmatch.fnmatch(relpath, pat) or fnmatch.fnmatch(
+                            os.path.basename(relpath), pat
+                        ):
                             should_ignore = True
                             break
                     if should_ignore:
@@ -417,12 +494,14 @@ def collect_histories(paths: List[str], ignore_patterns: List[str], log_encoding
                     histories.append(fh)
         else:
             # single file
-            if not path.endswith(',v'):
+            if not path.endswith(",v"):
                 sys.stderr.write(f"Skipping {path} (not an RCS ,v file)\n")
                 continue
             should_ignore = False
             for pat in ignore_patterns:
-                if fnmatch.fnmatch(path, pat) or fnmatch.fnmatch(os.path.basename(path), pat):
+                if fnmatch.fnmatch(path, pat) or fnmatch.fnmatch(
+                    os.path.basename(path), pat
+                ):
                     should_ignore = True
                     break
             if should_ignore:
@@ -435,7 +514,10 @@ def collect_histories(paths: List[str], ignore_patterns: List[str], log_encoding
             histories.append(fh)
     return histories
 
-def build_single_file_commits(histories: List[FileHistory], expand_keywords: bool) -> List[SingleFileCommit]:
+
+def build_single_file_commits(
+    histories: List[FileHistory], expand_keywords: bool
+) -> List[SingleFileCommit]:
     sfcs: List[SingleFileCommit] = []
     for fh in histories:
         for rev in fh.revisions:
@@ -443,15 +525,23 @@ def build_single_file_commits(histories: List[FileHistory], expand_keywords: boo
             try:
                 content = get_revision_content(fh.rcs_path, rev.rev, expand_keywords)
             except Exception as e:
-                sys.stderr.write(f"Warning: co failed for {fh.rcs_path} rev {rev.rev}: {e}\n")
-                content = ''
+                sys.stderr.write(
+                    f"Warning: co failed for {fh.rcs_path} rev {rev.rev}: {e}\n"
+                )
+                content = ""
             sfc = SingleFileCommit(fh.filename, fh.rcs_path, rev, content)
             sfcs.append(sfc)
     # sort by timestamp ascending (oldest first)
     sfcs.sort(key=lambda s: s.date_ts)
     return sfcs
 
-def coalesce_commits(single_commits: List[SingleFileCommit], commit_fuzz: int, symbol_check: bool, warn_missing_authors: bool) -> List[Dict]:
+
+def coalesce_commits(
+    single_commits: List[SingleFileCommit],
+    commit_fuzz: int,
+    symbol_check: bool,
+    warn_missing_authors: bool,
+) -> List[Dict]:
     """
     Coalesce single-file commits into multi-file commits where appropriate.
     Returns list of commit dicts:
@@ -478,7 +568,10 @@ def coalesce_commits(single_commits: List[SingleFileCommit], commit_fuzz: int, s
             # require symbol subset condition or symbol_check disabled
             if symbol_check:
                 # allow coalescing if symbols are subset in one direction
-                if not (group_symbols.issubset(cand.symbols) or cand.symbols.issubset(group_symbols)):
+                if not (
+                    group_symbols.issubset(cand.symbols)
+                    or cand.symbols.issubset(group_symbols)
+                ):
                     # do not coalesce
                     j += 1
                     continue
@@ -493,11 +586,11 @@ def coalesce_commits(single_commits: List[SingleFileCommit], commit_fuzz: int, s
             j += 1
         # build commit record
         commit = {
-            'date_ts': base.date_ts,
-            'author': base.author,
-            'log': base.log,
-            'files': group_files,
-            'symbols': group_symbols,
+            "date_ts": base.date_ts,
+            "author": base.author,
+            "log": base.log,
+            "files": group_files,
+            "symbols": group_symbols,
         }
         commits.append(commit)
         # advance i to the next non-merged index
@@ -510,6 +603,7 @@ def coalesce_commits(single_commits: List[SingleFileCommit], commit_fuzz: int, s
         i = max_idx + 1
     return commits
 
+
 def emit_all(commits: List[Dict], emitter: FastImportEmitter, tag_each_rev: bool):
     """
     Emit blobs and commits.
@@ -518,7 +612,7 @@ def emit_all(commits: List[Dict], emitter: FastImportEmitter, tag_each_rev: bool
     # We'll assign blobs lazily when preparing the tree for a commit
     # maintain last_commit_mark_for_file in emitter
     for idx, commit in enumerate(commits):
-        files = commit['files']
+        files = commit["files"]
         # prepare tree entries
         tree_entries: List[Tuple[str, Optional[int], str]] = []
         # determine parent candidate: use most recent last commit mark among involved files, if any
@@ -531,19 +625,27 @@ def emit_all(commits: List[Dict], emitter: FastImportEmitter, tag_each_rev: bool
         # for each file, ensure blob exists and collect mode
         for sf in files:
             # detect executable? crude: if content starts with shebang or original mode unknown - we'll default 644
-            mode = '644'
-            if sf.content.startswith('#!'):
-                mode = '755'
+            mode = "644"
+            if sf.content.startswith("#!"):
+                mode = "755"
             bmark = emitter.emit_blob(sf.filename, sf.rev_id, sf.content, mode=mode)
             tree_entries.append((sf.filename, bmark, mode))
         # compose log message, optionally prefix filename if single-file and requested
-        logmsg = commit['log'] or ''
+        logmsg = commit["log"] or ""
         if emitter.log_filename and len(files) == 1:
             logmsg = f"{files[0].filename}: {logmsg}"
         # create commit-level tags list (from symbols)
-        tags = sorted(commit.get('symbols', []))
+        tags = sorted(commit.get("symbols", []))
         # emit commit
-        commit_mark = emitter.emit_commit(tree_entries, commit['author'], commit['date_ts'], logmsg, parent_mark, commit_tag_symbols=tags, commit_index=idx)
+        commit_mark = emitter.emit_commit(
+            tree_entries,
+            commit["author"],
+            commit["date_ts"],
+            logmsg,
+            parent_mark,
+            commit_tag_symbols=tags,
+            commit_index=idx,
+        )
         # optionally tag each rev individually
         if tag_each_rev:
             for sf in files:
@@ -554,24 +656,79 @@ def emit_all(commits: List[Dict], emitter: FastImportEmitter, tag_each_rev: bool
                 sys.stdout.write(f"from :{commit_mark}\n")
                 sys.stdout.write("\n")
 
+
 # ---------- CLI ----------
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Convert RCS *,v files into git fast-import stream using rlog/co.")
-    parser.add_argument('paths', nargs='+', help="RCS files or directories (will walk to find ,v files)")
-    parser.add_argument('--authors-file', '-A', help="file with `username = Full Name <email>` mappings")
-    parser.add_argument('--author-is-committer', action='store_true', help="use author as committer")
-    parser.add_argument('--no-author-is-committer', dest='author_is_committer_no', action='store_true', help="do not use author as committer")
-    parser.add_argument('--ignore', action='append', default=[], help='ignore files matching this shell pattern (can be repeated)')
-    parser.add_argument('--log-encoding', help='encoding of log messages in RCS files (e.g. ISO-8859-1)')
-    parser.add_argument('--rcs-commit-fuzz', type=int, default=300, help='time fuzz (seconds) for coalescing commits (default 300)')
-    parser.add_argument('--no-symbol-check', dest='symbol_check', action='store_false', help='do not check symbols when coalescing')
-    parser.add_argument('--symbol-check', dest='symbol_check', action='store_true', help='check symbols when coalescing (default)')
-    parser.add_argument('--tag-each-rev', action='store_true', help='create a lightweight tag for each RCS revision')
-    parser.add_argument('--log-filename', action='store_true', help='prepend filename to commit logs for single-file imports')
-    parser.add_argument('--skip-branches', action='store_true', help='skip branch-only revisions')
-    parser.add_argument('--warn-missing-authors', action='store_true', help='warn about usernames not found in authors map')
-    parser.add_argument('--expand-keywords', action='store_true', help='expand keywords (co handles keyword expansion)')
+    parser = argparse.ArgumentParser(
+        description="Convert RCS *,v files into git fast-import stream using rlog/co."
+    )
+    parser.add_argument(
+        "paths", nargs="+", help="RCS files or directories (will walk to find ,v files)"
+    )
+    parser.add_argument(
+        "--authors-file", "-A", help="file with `username = Full Name <email>` mappings"
+    )
+    parser.add_argument(
+        "--author-is-committer", action="store_true", help="use author as committer"
+    )
+    parser.add_argument(
+        "--no-author-is-committer",
+        dest="author_is_committer_no",
+        action="store_true",
+        help="do not use author as committer",
+    )
+    parser.add_argument(
+        "--ignore",
+        action="append",
+        default=[],
+        help="ignore files matching this shell pattern (can be repeated)",
+    )
+    parser.add_argument(
+        "--log-encoding", help="encoding of log messages in RCS files (e.g. ISO-8859-1)"
+    )
+    parser.add_argument(
+        "--rcs-commit-fuzz",
+        type=int,
+        default=300,
+        help="time fuzz (seconds) for coalescing commits (default 300)",
+    )
+    parser.add_argument(
+        "--no-symbol-check",
+        dest="symbol_check",
+        action="store_false",
+        help="do not check symbols when coalescing",
+    )
+    parser.add_argument(
+        "--symbol-check",
+        dest="symbol_check",
+        action="store_true",
+        help="check symbols when coalescing (default)",
+    )
+    parser.add_argument(
+        "--tag-each-rev",
+        action="store_true",
+        help="create a lightweight tag for each RCS revision",
+    )
+    parser.add_argument(
+        "--log-filename",
+        action="store_true",
+        help="prepend filename to commit logs for single-file imports",
+    )
+    parser.add_argument(
+        "--skip-branches", action="store_true", help="skip branch-only revisions"
+    )
+    parser.add_argument(
+        "--warn-missing-authors",
+        action="store_true",
+        help="warn about usernames not found in authors map",
+    )
+    parser.add_argument(
+        "--expand-keywords",
+        action="store_true",
+        help="expand keywords (co handles keyword expansion)",
+    )
     args = parser.parse_args()
 
     # authors map
@@ -581,12 +738,17 @@ def main():
     # try to seed author map from environment/git config for current user
     try:
         import pwd, getpass
+
         current_user = getpass.getuser()
         if current_user not in author_map:
             # try to glean git config user.name and user.email
             try:
-                name = subprocess.check_output(["git", "config", "user.name"], text=True).strip()
-                email = subprocess.check_output(["git", "config", "user.email"], text=True).strip()
+                name = subprocess.check_output(
+                    ["git", "config", "user.name"], text=True
+                ).strip()
+                email = subprocess.check_output(
+                    ["git", "config", "user.email"], text=True
+                ).strip()
                 if name and email:
                     author_map[current_user] = f"{name} <{email}>"
             except Exception:
@@ -594,7 +756,13 @@ def main():
     except Exception:
         pass
 
-    histories = collect_histories(args.paths, args.ignore, args.log_encoding, args.expand_keywords, args.skip_branches)
+    histories = collect_histories(
+        args.paths,
+        args.ignore,
+        args.log_encoding,
+        args.expand_keywords,
+        args.skip_branches,
+    )
     if not histories:
         sys.stderr.write("No RCS histories found.\n")
         sys.exit(1)
@@ -613,15 +781,37 @@ def main():
         # create commits in chronological order - each becomes a commit
         commits: List[Dict] = []
         for s in sfcs:
-            commit = {'date_ts': s.date_ts, 'author': s.author, 'log': s.log, 'files': [s], 'symbols': set(s.symbols)}
+            commit = {
+                "date_ts": s.date_ts,
+                "author": s.author,
+                "log": s.log,
+                "files": [s],
+                "symbols": set(s.symbols),
+            }
             commits.append(commit)
     else:
-        commits = coalesce_commits(sfcs, args.rcs_commit_fuzz if hasattr(args, 'rcs_commit_fuzz') else args.rcs_commit_fuzz, args.symbol_check if hasattr(args, 'symbol_check') else True, args.warn_missing_authors)
+        commits = coalesce_commits(
+            sfcs,
+            (
+                args.rcs_commit_fuzz
+                if hasattr(args, "rcs_commit_fuzz")
+                else args.rcs_commit_fuzz
+            ),
+            args.symbol_check if hasattr(args, "symbol_check") else True,
+            args.warn_missing_authors,
+        )
 
-    emitter = FastImportEmitter(author_map, author_is_committer=(args.author_is_committer and not args.author_is_committer_no), tag_each_rev=args.tag_each_rev, log_filename=args.log_filename)
+    emitter = FastImportEmitter(
+        author_map,
+        author_is_committer=(
+            args.author_is_committer and not args.author_is_committer_no
+        ),
+        tag_each_rev=args.tag_each_rev,
+        log_filename=args.log_filename,
+    )
 
     emit_all(commits, emitter, args.tag_each_rev)
 
-if __name__ == '__main__':
-    main()
 
+if __name__ == "__main__":
+    main()

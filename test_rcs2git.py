@@ -6,6 +6,7 @@ import subprocess
 from unittest.mock import patch
 from io import StringIO
 
+
 def test_parse_rcs_date():
     # Standard RCS date format
     dt = datetime.datetime(2023, 10, 27, 10, 30, 0, tzinfo=datetime.timezone.utc)
@@ -22,6 +23,7 @@ def test_parse_rcs_date():
     # Invalid format should return current time (approximately)
     now = int(time.time())
     assert parse_rcs_date("invalid date") == pytest.approx(now, abs=2)
+
 
 def test_rcs2git_integration():
     # Mock rlog command
@@ -47,20 +49,23 @@ text
     co_output_1_2 = "Hello, world!\\nThis is the second revision."
 
     def mock_subprocess(cmd, text=True, stderr=None):
-        if cmd[0] == 'rlog':
+        if cmd[0] == "rlog":
             return rlog_output
-        elif cmd[0] == 'co':
-            if cmd[1] == '-p1.1':
+        elif cmd[0] == "co":
+            if cmd[1] == "-p1.1":
                 return co_output_1_1
-            elif cmd[1] == '-p1.2':
+            elif cmd[1] == "-p1.2":
                 return co_output_1_2
-        return ''
+        return ""
 
-    with patch('subprocess.check_output', side_effect=mock_subprocess) as mock_check_output:
+    with patch(
+        "subprocess.check_output", side_effect=mock_subprocess
+    ) as mock_check_output:
         # Run the script
         from rcs2git import main
-        with patch('sys.argv', ['rcs2git.py', 'test_data/test_file.txt,v']):
-            with patch('sys.stdout', new_callable=StringIO) as mock_stdout:
+
+        with patch("sys.argv", ["rcs2git.py", "test_data/test_file.txt,v"]):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
                 main()
                 output = mock_stdout.getvalue()
 
