@@ -1,0 +1,42 @@
+head	1.2;
+access;
+symbols;
+locks; strict;
+comment	@# @;
+
+
+1.2
+date	2023.11.21.12.00.00;	author testuser;	state exp;
+branches;
+next	1.1;
+
+desc
+@@
+
+
+1.1
+date	2023.11.21.11.00.00;	author testuser;	state exp;
+branches;
+next	;
+
+desc
+@@
+
+
+@1.2
+log
+@Second revision
+@
+text
+@Hello, world!
+This is the second revision.
+@
+
+
+@1.1
+log
+@Initial revision
+@
+text
+@Hello, world!
+@
