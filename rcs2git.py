@@ -15,7 +15,6 @@ Example:
 
 This aims to provide feature parity (practical) with the Ruby rcs-fast-export.
 """
-from __future__ import annotations
 import argparse
 import subprocess
 import sys
@@ -26,19 +25,29 @@ import datetime
 import shlex
 from typing import List, Dict, Tuple, Optional, Set
 
+ZERO = datetime.timedelta(0)
+
+class UTC(datetime.tzinfo):
+    def utcoffset(self, dt):
+        return ZERO
+    def tzname(self, dt):
+        return "UTC"
+    def dst(self, dt):
+        return ZERO
+
 # ---------- Utilities ----------
 
 
-def run_cmd(cmd: List[str]) -> str:
+def run_cmd(cmd):
     """Run command and return stdout (text). Raises subprocess.CalledProcessError on error."""
-    return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+    return subprocess.check_output(cmd, universal_newlines=True, stderr=subprocess.DEVNULL)
 
 
-def safe_split_lines(s: str) -> List[str]:
+def safe_split_lines(s):
     return s.splitlines()
 
 
-def parse_rcs_date(s: str) -> int:
+def parse_rcs_date(s):
     """
     RCS date format (common): YYYY.MM.DD.HH.MM.SS
     Some old files might have 2-digit year - treat < 3 digits as 19xx.
@@ -48,8 +57,8 @@ def parse_rcs_date(s: str) -> int:
     if len(parts) < 6:
         # fallback: try to parse common RFC-ish date fragments
         try:
-            dt = datetime.datetime.fromisoformat(s)
-            return int(dt.replace(tzinfo=datetime.timezone.utc).timestamp())
+            dt = datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ")
+            return int(dt.replace(tzinfo=UTC()).timestamp())
         except Exception:
             return int(time.time())
     y = parts[0]
@@ -64,15 +73,15 @@ def parse_rcs_date(s: str) -> int:
             parts_i[3],
             parts_i[4],
             parts_i[5],
-            tzinfo=datetime.timezone.utc,
+            tzinfo=UTC(),
         )
         return int(dt.timestamp())
     except Exception:
         return int(time.time())
 
 
-def load_authors_file(fn: str, warn_missing: bool) -> Dict[str, str]:
-    mapping: Dict[str, str] = {}
+def load_authors_file(fn, warn_missing):
+    mapping = {}
     try:
         with open(os.path.expanduser(fn), "r", encoding="utf-8") as f:
             for line in f:
@@ -85,11 +94,11 @@ def load_authors_file(fn: str, warn_missing: bool) -> Dict[str, str]:
                     author = author.strip()
                     if uname in mapping:
                         sys.stderr.write(
-                            f"Warning: username {uname} redefined to {author}\n"
+                            "Warning: username {uname} redefined to {author}\n".format(uname=uname, author=author)
                         )
                     mapping[uname] = author
     except FileNotFoundError:
-        sys.stderr.write(f"Warning: authors file {fn} not found\n")
+        sys.stderr.write("Warning: authors file {fn} not found\n".format(fn=fn))
     return mapping
 
 
@@ -97,35 +106,44 @@ def load_authors_file(fn: str, warn_missing: bool) -> Dict[str, str]:
 
 
 class Revision:
-    def __init__(self, rev: str):
+    def __init__(self, rev):
         self.rev = rev
-        self.date_iso: Optional[str] = None
-        self.date_ts: Optional[int] = None
-        self.author: Optional[str] = None
-        self.state: Optional[str] = None
-        self.branches: List[str] = []
-        self.symbols: Set[str] = set()
-        self.log: str = ""
-        self.has_log_started: bool = False
+        self.date_iso = None
+        self.date_ts = None
+        self.author = None
+        self.state = None
+        self.branches = []
+        self.symbols = set()
+        self.log = ""
+        self.has_log_started = False
 
     def __repr__(self):
-        return f"<Revision {self.rev} author={self.author} date={self.date_iso} symbols={sorted(self.symbols)}>"
+        return "<Revision {rev} author={author} date={date_iso} symbols={symbols}>".format(
+            rev=self.rev,
+            author=self.author,
+            date_iso=self.date_iso,
+            symbols=sorted(self.symbols),
+        )
 
 
 class FileHistory:
-    def __init__(self, rcs_path: str, filename: str):
+    def __init__(self, rcs_path, filename):
         self.rcs_path = rcs_path  # path to the ,v file
         self.filename = filename  # logical filename used in git (path minus ,v)
-        self.symbols: Dict[str, str] = {}  # symbol -> revision (from header)
-        self.revisions: List[Revision] = (
+        self.symbols = {}  # symbol -> revision (from header)
+        self.revisions = (
             []
         )  # sorted newest->oldest as returned by rlog; we'll reverse later
 
     def __repr__(self):
-        return f"<FileHistory {self.filename} revs={len(self.revisions)} symbols={list(self.symbols.keys())}>"
+        return "<FileHistory {filename} revs={revs} symbols={symbols}>".format(
+            filename=self.filename,
+            revs=len(self.revisions),
+            symbols=list(self.symbols.keys()),
+        )
 
 
-def parse_rlog(rcs_path: str, log_encoding: Optional[str] = None) -> FileHistory:
+def parse_rlog(rcs_path, log_encoding=None):
     """
     Uses `rlog -z` to obtain revision list, symbol table and logs.
     Returns a FileHistory object.
@@ -301,12 +319,12 @@ def parse_rlog(rcs_path: str, log_encoding: Optional[str] = None) -> FileHistory
     return fh
 
 
-def get_revision_content(rcs_path: str, rev: str, expand_keywords: bool = False) -> str:
+def get_revision_content(rcs_path, rev, expand_keywords=False):
     """
     Use `co -q -pREV` to print the full text of a revision.
     expand_keywords currently ignored (co will expand by default if keywords are present).
     """
-    cmd = ["co", "-q", f"-p{rev}", rcs_path]
+    cmd = ["co", "-q", "-p{rev}".format(rev=rev), rcs_path]
     return run_cmd(cmd)
 
 
@@ -314,7 +332,7 @@ def get_revision_content(rcs_path: str, rev: str, expand_keywords: bool = False)
 
 
 class SingleFileCommit:
-    def __init__(self, filename: str, rcs_path: str, rev: Revision, content: str):
+    def __init__(self, filename, rcs_path, rev, content):
         self.filename = filename  # path in repo
         self.rcs_path = rcs_path  # path to the ,v file
         self.rev_id = rev.rev
@@ -326,7 +344,12 @@ class SingleFileCommit:
         self.content = content
 
     def __repr__(self):
-        return f"<SFC {self.filename}@{self.rev_id} author={self.author} date={self.date_ts}>"
+        return "<SFC {filename}@{rev_id} author={author} date={date_ts}>".format(
+            filename=self.filename,
+            rev_id=self.rev_id,
+            author=self.author,
+            date_ts=self.date_ts,
+        )
 
 
 # ---------- Fast-import emission ----------
@@ -335,36 +358,36 @@ class SingleFileCommit:
 class FastImportEmitter:
     def __init__(
         self,
-        author_map: Dict[str, str],
-        author_is_committer: bool,
-        tag_each_rev: bool,
-        log_filename: bool,
+        author_map,
+        author_is_committer,
+        tag_each_rev,
+        log_filename,
     ):
         self.author_map = author_map
         self.author_is_committer = author_is_committer
         self.tag_each_rev = tag_each_rev
         self.log_filename = log_filename
         self._next_mark = 1
-        self._blob_marks: Dict[Tuple[str, str], int] = {}  # (filename,rev) -> mark
-        self._commit_marks: Dict[int, int] = (
+        self._blob_marks = {}  # (filename,rev) -> mark
+        self._commit_marks = (
             {}
         )  # sequential index -> mark (we'll use list-index)
-        self._last_commit_mark_for_file: Dict[str, int] = {}
-        self._printed_blobs: Set[int] = set()
+        self._last_commit_mark_for_file = {}
+        self._printed_blobs = set()
 
-    def _alloc_mark(self) -> int:
+    def _alloc_mark(self):
         m = self._next_mark
         self._next_mark += 1
         return m
 
-    def author_for(self, username: str) -> str:
+    def author_for(self, username):
         if username in self.author_map:
             return self.author_map[username]
         # default mapping
-        self.author_map[username] = f"{username} <{username}@example.com>"
+        self.author_map[username] = "{username} <{username}@example.com>".format(username=username)
         return self.author_map[username]
 
-    def emit_blob(self, filename: str, rev_id: str, content: str, mode: str = "644"):
+    def emit_blob(self, filename, rev_id, content, mode="644"):
         key = (filename, rev_id)
         if key in self._blob_marks:
             return self._blob_marks[key]
@@ -377,7 +400,7 @@ class FastImportEmitter:
             content_bytes = content.encode("utf-8")
         else:
             content_bytes = content
-        sys.stdout.write(f"blob\nmark :{bmark}\ndata {len(content_bytes)}\n")
+        sys.stdout.write("blob\nmark :{bmark}\ndata {len_bytes}\n".format(bmark=bmark, len_bytes=len(content_bytes)))
         # write bytes - Python stdout is text-mode; ensure we write text. We decode bytes as utf-8 but binary could break.
         try:
             sys.stdout.buffer.write(content_bytes)
@@ -389,13 +412,13 @@ class FastImportEmitter:
 
     def emit_commit(
         self,
-        tree_entries: List[Tuple[str, int, str]],
-        author_name: str,
-        date_ts: int,
-        logmsg: str,
-        parent_mark: Optional[int],
-        commit_tag_symbols: List[str] = [],
-        commit_index: Optional[int] = None,
+        tree_entries,
+        author_name,
+        date_ts,
+        logmsg,
+        parent_mark,
+        commit_tag_symbols=[],
+        commit_index=None,
     ):
         """
         tree_entries: list of tuples (path, blob_mark, mode) where mode like '644' or '755' or 'D' for delete
@@ -406,12 +429,12 @@ class FastImportEmitter:
         # output commit
         branch = "master"
         au = self.author_for(author_name)
-        date_str = f"{int(date_ts)} +0000"
-        sys.stdout.write(f"commit refs/heads/{branch}\n")
-        sys.stdout.write(f"mark :{commit_mark}\n")
-        sys.stdout.write(f"author {au} {date_str}\n")
+        date_str = "{ts} +0000".format(ts=int(date_ts))
+        sys.stdout.write("commit refs/heads/{branch}\n".format(branch=branch))
+        sys.stdout.write("mark :{commit_mark}\n".format(commit_mark=commit_mark))
+        sys.stdout.write("author {au} {date_str}\n".format(au=au, date_str=date_str))
         if self.author_is_committer:
-            sys.stdout.write(f"committer {au} {date_str}\n")
+            sys.stdout.write("committer {au} {date_str}\n".format(au=au, date_str=date_str))
         else:
             # use current environment committer identity
             try:
@@ -420,25 +443,25 @@ class FastImportEmitter:
                 ).strip()
             except Exception:
                 committer = au + " " + date_str
-            sys.stdout.write(f"committer {committer}\n")
+            sys.stdout.write("committer {committer}\n".format(committer=committer))
         if logmsg is None:
             logmsg = ""
-        sys.stdout.write(f"data {len(logmsg.encode('utf-8'))}\n")
+        sys.stdout.write("data {len_logmsg}\n".format(len_logmsg=len(logmsg.encode('utf-8'))))
         if logmsg:
             sys.stdout.write(logmsg + "\n")
         if parent_mark:
-            sys.stdout.write(f"from :{parent_mark}\n")
+            sys.stdout.write("from :{parent_mark}\n".format(parent_mark=parent_mark))
         # write tree entries
         for path, bmark, mode in tree_entries:
             if bmark is None:
                 # deletion
-                sys.stdout.write(f"D {path}\n")
+                sys.stdout.write("D {path}\n".format(path=path))
             else:
-                sys.stdout.write(f"M {mode} :{bmark} {path}\n")
+                sys.stdout.write("M {mode} :{bmark} {path}\n".format(mode=mode, bmark=bmark, path=path))
         # tags pointing to this commit (reset refs/tags/NAME)
         for t in commit_tag_symbols:
-            sys.stdout.write(f"reset refs/tags/{t}\n")
-            sys.stdout.write(f"from :{commit_mark}\n")
+            sys.stdout.write("reset refs/tags/{t}\n".format(t=t))
+            sys.stdout.write("from :{commit_mark}\n".format(commit_mark=commit_mark))
         # potentially also tag each rev
         sys.stdout.write("\n")
         # update last commit mark mapping for files in this commit
@@ -452,13 +475,13 @@ class FastImportEmitter:
 
 
 def collect_histories(
-    paths: List[str],
-    ignore_patterns: List[str],
-    log_encoding: Optional[str],
-    expand_keywords: bool,
-    skip_branches: bool,
-) -> List[FileHistory]:
-    histories: List[FileHistory] = []
+    paths,
+    ignore_patterns,
+    log_encoding,
+    expand_keywords,
+    skip_branches,
+):
+    histories = []
     for path in paths:
         if os.path.isdir(path):
             # walk and find files ending with ,v
@@ -485,7 +508,7 @@ def collect_histories(
                     try:
                         fh = parse_rlog(relpath, log_encoding)
                     except Exception as e:
-                        sys.stderr.write(f"Failed to parse {relpath}: {e}\n")
+                        sys.stderr.write("Failed to parse {relpath}: {e}\n".format(relpath=relpath, e=e))
                         continue
                     # if skip_branches option, filter out revisions that are branch-only?
                     if skip_branches:
@@ -495,7 +518,7 @@ def collect_histories(
         else:
             # single file
             if not path.endswith(",v"):
-                sys.stderr.write(f"Skipping {path} (not an RCS ,v file)\n")
+                sys.stderr.write("Skipping {path} (not an RCS ,v file)\n".format(path=path))
                 continue
             should_ignore = False
             for pat in ignore_patterns:
@@ -509,16 +532,16 @@ def collect_histories(
             try:
                 fh = parse_rlog(path, log_encoding)
             except Exception as e:
-                sys.stderr.write(f"Failed to parse {path}: {e}\n")
+                sys.stderr.write("Failed to parse {path}: {e}\n".format(path=path, e=e))
                 continue
             histories.append(fh)
     return histories
 
 
 def build_single_file_commits(
-    histories: List[FileHistory], expand_keywords: bool
-) -> List[SingleFileCommit]:
-    sfcs: List[SingleFileCommit] = []
+    histories, expand_keywords
+):
+    sfcs = []
     for fh in histories:
         for rev in fh.revisions:
             # skip revision if no date or no author? we'll include but default values assigned
@@ -526,7 +549,9 @@ def build_single_file_commits(
                 content = get_revision_content(fh.rcs_path, rev.rev, expand_keywords)
             except Exception as e:
                 sys.stderr.write(
-                    f"Warning: co failed for {fh.rcs_path} rev {rev.rev}: {e}\n"
+                    "Warning: co failed for {rcs_path} rev {rev}: {e}\n".format(
+                        rcs_path=fh.rcs_path, rev=rev.rev, e=e
+                    )
                 )
                 content = ""
             sfc = SingleFileCommit(fh.filename, fh.rcs_path, rev, content)
@@ -537,17 +562,17 @@ def build_single_file_commits(
 
 
 def coalesce_commits(
-    single_commits: List[SingleFileCommit],
-    commit_fuzz: int,
-    symbol_check: bool,
-    warn_missing_authors: bool,
-) -> List[Dict]:
+    single_commits,
+    commit_fuzz,
+    symbol_check,
+    warn_missing_authors,
+):
     """
     Coalesce single-file commits into multi-file commits where appropriate.
     Returns list of commit dicts:
         { 'date_ts': int, 'author': str, 'log': str, 'files': [SingleFileCommit], 'symbols': set() }
     """
-    commits: List[Dict] = []
+    commits = []
     # We'll perform a forward scan similar to Ruby but simpler:
     i = 0
     n = len(single_commits)
@@ -604,7 +629,7 @@ def coalesce_commits(
     return commits
 
 
-def emit_all(commits: List[Dict], emitter: FastImportEmitter, tag_each_rev: bool):
+def emit_all(commits, emitter, tag_each_rev):
     """
     Emit blobs and commits.
     Commits is list of dicts with keys: date_ts, author, log, files(list of SingleFileCommit), symbols(set)
@@ -614,7 +639,7 @@ def emit_all(commits: List[Dict], emitter: FastImportEmitter, tag_each_rev: bool
     for idx, commit in enumerate(commits):
         files = commit["files"]
         # prepare tree entries
-        tree_entries: List[Tuple[str, Optional[int], str]] = []
+        tree_entries = []
         # determine parent candidate: use most recent last commit mark among involved files, if any
         candidate_parents = []
         for sf in files:
@@ -633,7 +658,7 @@ def emit_all(commits: List[Dict], emitter: FastImportEmitter, tag_each_rev: bool
         # compose log message, optionally prefix filename if single-file and requested
         logmsg = commit["log"] or ""
         if emitter.log_filename and len(files) == 1:
-            logmsg = f"{files[0].filename}: {logmsg}"
+            logmsg = "{filename}: {logmsg}".format(filename=files[0].filename, logmsg=logmsg)
         # create commit-level tags list (from symbols)
         tags = sorted(commit.get("symbols", []))
         # emit commit
@@ -652,8 +677,8 @@ def emit_all(commits: List[Dict], emitter: FastImportEmitter, tag_each_rev: bool
                 # tag name: filename@rev or rev
                 t = sf.rev_id
                 # create lightweight tag pointing to commit
-                sys.stdout.write(f"reset refs/tags/{t}\n")
-                sys.stdout.write(f"from :{commit_mark}\n")
+                sys.stdout.write("reset refs/tags/{t}\n".format(t=t))
+                sys.stdout.write("from :{commit_mark}\n".format(commit_mark=commit_mark))
                 sys.stdout.write("\n")
 
 
@@ -750,7 +775,7 @@ def main():
                     ["git", "config", "user.email"], text=True
                 ).strip()
                 if name and email:
-                    author_map[current_user] = f"{name} <{email}>"
+                    author_map[current_user] = "{name} <{email}>".format(name=name, email=email)
             except Exception:
                 pass
     except Exception:
@@ -767,13 +792,13 @@ def main():
         sys.stderr.write("No RCS histories found.\n")
         sys.exit(1)
 
-    sys.stderr.write(f"Found {len(histories)} RCS files to import\n")
+    sys.stderr.write("Found {len_histories} RCS files to import\n".format(len_histories=len(histories)))
     for h in histories:
-        sys.stderr.write(f"  {h}\n")
+        sys.stderr.write("  {h}\n".format(h=h))
 
     # build single-file commits
     sfcs = build_single_file_commits(histories, args.expand_keywords)
-    sys.stderr.write(f"Built {len(sfcs)} single-file revisions\n")
+    sys.stderr.write("Built {len_sfcs} single-file revisions\n".format(len_sfcs=len(sfcs)))
 
     # coalesce commits if more than one file
     if len(histories) == 1:

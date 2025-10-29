@@ -1,23 +1,22 @@
 import pytest
-from rcs2git import parse_rcs_date
+from rcs2git import parse_rcs_date, UTC
 import datetime
 import time
 import subprocess
 from unittest.mock import patch
-from io import StringIO
 
 
 def test_parse_rcs_date():
     # Standard RCS date format
-    dt = datetime.datetime(2023, 10, 27, 10, 30, 0, tzinfo=datetime.timezone.utc)
+    dt = datetime.datetime(2023, 10, 27, 10, 30, 0, tzinfo=UTC())
     assert parse_rcs_date("2023.10.27.10.30.00") == int(dt.timestamp())
 
     # 2-digit year (should be treated as 19xx)
-    dt = datetime.datetime(1999, 12, 31, 23, 59, 59, tzinfo=datetime.timezone.utc)
+    dt = datetime.datetime(1999, 12, 31, 23, 59, 59, tzinfo=UTC())
     assert parse_rcs_date("99.12.31.23.59.59") == int(dt.timestamp())
 
     # ISO format fallback
-    dt = datetime.datetime(2023, 10, 27, 10, 30, 0, tzinfo=datetime.timezone.utc)
+    dt = datetime.datetime(2023, 10, 27, 10, 30, 0, tzinfo=UTC())
     assert parse_rcs_date("2023-10-27T10:30:00Z") == int(dt.timestamp())
 
     # Invalid format should return current time (approximately)
@@ -48,7 +47,7 @@ text
     # Mock co command for revision 1.2
     co_output_1_2 = "Hello, world!\\nThis is the second revision."
 
-    def mock_subprocess(cmd, text=True, stderr=None):
+    def mock_subprocess(cmd, universal_newlines=True, stderr=None):
         if cmd[0] == "rlog":
             return rlog_output
         elif cmd[0] == "co":
@@ -63,11 +62,18 @@ text
     ) as mock_check_output:
         # Run the script
         from rcs2git import main
+        from io import StringIO
+        import sys
 
-        with patch("sys.argv", ["rcs2git.py", "test_data/test_file.txt,v"]):
-            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+        saved_stdout = sys.stdout
+        try:
+            out = StringIO()
+            sys.stdout = out
+            with patch("sys.argv", ["rcs2git.py", "test_data/test_file.txt,v"]):
                 main()
-                output = mock_stdout.getvalue()
+            output = out.getvalue()
+        finally:
+            sys.stdout = saved_stdout
 
         # Assertions to check the output
         assert "blob" in output
