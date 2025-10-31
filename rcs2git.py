@@ -29,9 +29,7 @@ from typing import List, Dict, Tuple, Optional, Set
 # ---------- Utilities ----------
 
 
-def run_cmd(cmd: List[str]) -> str:
-    """Run command and return stdout (text). Raises subprocess.CalledProcessError on error."""
-    return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+
 
 
 def safe_split_lines(s: str) -> List[str]:
@@ -135,9 +133,11 @@ def parse_rlog(rcs_path: str, log_encoding: Optional[str] = None) -> FileHistory
     # We'll try "rlog -z" first (common), fallback to "rlog" if it errors.
     cmd = ["rlog", "-z", rcs_path]
     try:
-        out = run_cmd(cmd)
+        result = subprocess.run(["rlog", "-z", rcs_path], capture_output=True, text=True, check=True)
+        out = result.stdout
     except subprocess.CalledProcessError:
-        out = run_cmd(["rlog", rcs_path])
+        result = subprocess.run(["rlog", rcs_path], capture_output=True, text=True, check=True)
+        out = result.stdout
 
     if log_encoding:
         try:
@@ -307,7 +307,8 @@ def get_revision_content(rcs_path: str, rev: str, expand_keywords: bool = False)
     expand_keywords currently ignored (co will expand by default if keywords are present).
     """
     cmd = ["co", "-q", f"-p{rev}", rcs_path]
-    return run_cmd(cmd)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return result.stdout
 
 
 # ---------- Build commit objects ----------
@@ -378,13 +379,8 @@ class FastImportEmitter:
         else:
             content_bytes = content
         sys.stdout.write(f"blob\nmark :{bmark}\ndata {len(content_bytes)}\n")
-        # write bytes - Python stdout is text-mode; ensure we write text. We decode bytes as utf-8 but binary could break.
-        try:
-            sys.stdout.buffer.write(content_bytes)
-            sys.stdout.buffer.write(b"\n")
-        except Exception:
-            # fallback to writing as text
-            sys.stdout.write(content + "\n")
+        sys.stdout.buffer.write(content_bytes)
+        sys.stdout.buffer.write(b"\n")
         return bmark
 
     def emit_commit(
